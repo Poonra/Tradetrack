@@ -1,12 +1,61 @@
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::str::FromStr;
+
+#[derive(Debug)]
+pub struct Lot {
+    pub shares: Decimal,
+    pub cost: Decimal,
+}
 
 #[derive(Debug)]
 pub struct Holding {
     pub name: String,
-    pub shares: Decimal,
+    pub lots: VecDeque<Lot>,
+}
+
+impl Holding {
+    #[must_use]
+    pub fn shares(&self) -> Decimal {
+        self.lots.iter().map(|lot| lot.shares).sum()
+    }
+
+    #[must_use]
+    pub fn cost_basis(&self) -> Decimal {
+        self.lots.iter().map(|lot| lot.cost).sum()
+    }
+
+    /// Removes sold shares from the oldest lots first and returns what they cost.
+    fn sell(&mut self, mut shares: Decimal) -> Decimal {
+        let mut cost = Decimal::ZERO;
+        while let Some(lot) = self.lots.front_mut() {
+            if lot.shares <= shares {
+                shares -= lot.shares;
+                cost += lot.cost;
+                self.lots.pop_front();
+            } else {
+                let part = lot.cost * shares / lot.shares;
+                lot.shares -= shares;
+                lot.cost -= part;
+                cost += part;
+                break;
+            }
+        }
+        cost
+    }
+
+    /// Spreads the extra shares of a split over the existing lots.
+    fn split(&mut self, extra: Decimal) {
+        let before = self.shares();
+        if before.is_zero() {
+            return;
+        }
+        let factor = (before + extra) / before;
+        for lot in &mut self.lots {
+            lot.shares *= factor;
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,16 +130,29 @@ pub fn holdings(rows: &[Row]) -> Result<BTreeMap<String, Holding>, UnknownTransa
             continue;
         }
 
+        let shares = row.shares.unwrap_or_default();
+        let money = row.amount.unwrap_or_default() + row.fee.unwrap_or_default();
+
         let holding = positions
             .entry(row.symbol.clone())
             .or_insert_with(|| Holding {
                 name: row.name.clone(),
-                shares: Decimal::ZERO,
+                lots: VecDeque::new(),
             });
-        holding.shares += row.shares.unwrap_or_default();
+        match kind {
+            TransactionType::Buy => holding.lots.push_back(Lot {
+                shares,
+                cost: -money,
+            }),
+            TransactionType::Sell => {
+                holding.sell(-shares);
+            }
+            TransactionType::Split => holding.split(shares),
+            _ => {}
+        }
     }
 
-    positions.retain(|_, holding| !holding.shares.is_zero());
+    positions.retain(|_, holding| !holding.shares().is_zero());
     Ok(positions)
 }
 
