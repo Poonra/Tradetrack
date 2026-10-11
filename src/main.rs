@@ -13,10 +13,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     for (isin, holding) in &holdings(&rows)? {
         println!(
-            "{:<32} {isin} {:>14} {}",
+            "{:<32} {isin:<12} {:>12} {:>10.2} {:>10.2}",
             holding.name,
             holding.shares().normalize(),
-            holding.cost_basis().round_dp(2)
+            holding.cost_basis().round_dp(2),
+            holding.realized.round_dp(2)
         );
     }
     Ok(())
