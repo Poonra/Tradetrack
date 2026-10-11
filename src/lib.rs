@@ -1,6 +1,13 @@
 use rust_decimal::Decimal;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::str::FromStr;
+
+#[derive(Debug)]
+pub struct Holding {
+    pub name: String,
+    pub shares: Decimal,
+}
 
 #[derive(Debug, Deserialize)]
 pub struct Row {
@@ -55,4 +62,46 @@ impl FromStr for TransactionType {
             other => Err(UnknownTransactionType(other.to_string())),
         }
     }
+}
+
+/// Adds up the shares of every position, keyed by ISIN.
+///
+/// # Errors
+///
+/// Returns an error if a row has a transaction type this program does not know.
+pub fn holdings(rows: &[Row]) -> Result<BTreeMap<String, Holding>, UnknownTransactionType> {
+    let mut positions: BTreeMap<String, Holding> = BTreeMap::new();
+
+    for row in rows {
+        let kind: TransactionType = row.kind.parse()?;
+        if !matches!(
+            kind,
+            TransactionType::Buy | TransactionType::Sell | TransactionType::Split
+        ) {
+            continue;
+        }
+
+        let holding = positions
+            .entry(row.symbol.clone())
+            .or_insert_with(|| Holding {
+                name: row.name.clone(),
+                shares: Decimal::ZERO,
+            });
+        holding.shares += row.shares.unwrap_or_default();
+    }
+
+    positions.retain(|_, holding| !holding.shares.is_zero());
+    Ok(positions)
+}
+
+/// Adds up amount, fee and tax of every row: the money left in the account.
+#[must_use]
+pub fn cash_balance(rows: &[Row]) -> Decimal {
+    let mut cash = Decimal::ZERO;
+    for row in rows {
+        cash += row.amount.unwrap_or_default()
+            + row.fee.unwrap_or_default()
+            + row.tax.unwrap_or_default();
+    }
+    cash
 }
