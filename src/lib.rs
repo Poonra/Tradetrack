@@ -1,4 +1,21 @@
+use rust_decimal::Decimal;
+use serde::Deserialize;
 use std::str::FromStr;
+
+#[derive(Debug, Deserialize)]
+pub struct Row {
+    pub datetime: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub name: String,
+    pub symbol: String,
+    pub shares: Option<Decimal>,
+    pub price: Option<Decimal>,
+    pub amount: Option<Decimal>,
+    pub fee: Option<Decimal>,
+    pub tax: Option<Decimal>,
+    pub transaction_id: String,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TransactionType {

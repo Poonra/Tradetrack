@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::error::Error;
 
-use tradetrack::TransactionType;
+use rust_decimal::Decimal;
+use tradetrack::{Row, TransactionType};
+
 fn main() -> Result<(), Box<dyn Error>> {
     let path = std::env::args()
         .nth(1)
@@ -9,17 +11,22 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut reader = csv::Reader::from_path(path)?;
     let mut counts: HashMap<TransactionType, u32> = HashMap::new();
+    let mut cash = Decimal::ZERO;
 
-    for result in reader.records() {
-        let record = result?;
-        let text = record.get(4).ok_or("row has no type column")?;
-        let kind: TransactionType = text.parse()?;
+    for result in reader.deserialize() {
+        let row: Row = result?;
+        let kind: TransactionType = row.kind.parse()?;
         *counts.entry(kind).or_insert(0) += 1;
+
+        cash += row.amount.unwrap_or_default()
+            + row.fee.unwrap_or_default()
+            + row.tax.unwrap_or_default();
     }
 
     for (kind, count) in &counts {
         println!("{kind:?}: {count}");
     }
+    println!("cash balance: {cash}");
 
     Ok(())
 }
