@@ -57,21 +57,28 @@ impl Holding {
             lot.shares *= factor;
         }
     }
+    #[must_use]
+    pub fn value(&self, price: Decimal) -> Decimal {
+        self.shares() * price
+    }
+
+    /// Gain or loss on the shares held: their value minus what they cost.
+    #[must_use]
+    pub fn unrealized(&self, price: Decimal) -> Decimal {
+        self.value(price) - self.cost_basis()
+    }
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Row {
-    pub datetime: String,
     #[serde(rename = "type")]
     pub kind: String,
     pub name: String,
     pub symbol: String,
     pub shares: Option<Decimal>,
-    pub price: Option<Decimal>,
     pub amount: Option<Decimal>,
     pub fee: Option<Decimal>,
     pub tax: Option<Decimal>,
-    pub transaction_id: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
