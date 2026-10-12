@@ -17,6 +17,27 @@ fn main() -> ExitCode {
     }
 }
 
+/// Looks up what one share of a position is worth in euros right now.
+fn price(
+    isin: &str,
+    tickers: &HashMap<String, String>,
+    eur_usd: Option<Decimal>,
+) -> Result<Decimal, Box<dyn Error>> {
+    let ticker = tickers
+        .get(isin)
+        .ok_or_else(|| format!("no ticker for {isin} in the tickers file"))?;
+    let eur_usd = eur_usd.ok_or("no EUR/USD rate")?;
+    prices::price_in_eur(ticker, eur_usd)
+}
+
+/// Formats an amount for the table, or a dash if it is not known.
+fn cell(amount: Option<Decimal>) -> String {
+    amount.map_or_else(
+        || "-".to_string(),
+        |amount| format!("{:.2}", amount.round_dp(2)),
+    )
+}
+
 fn run() -> Result<(), Box<dyn Error>> {
     let path = std::env::args().nth(1).ok_or(USAGE)?;
 
@@ -39,11 +60,13 @@ fn run() -> Result<(), Box<dyn Error>> {
         sums.fees, sums.taxes, sums.interest, sums.dividends
     );
 
-    let eur_usd = prices::fetch("EURUSD=X")?;
-    println!(
-        "conversion rate EUR/USD: {} {}",
-        eur_usd.price, eur_usd.currency
-    );
+    let eur_usd = prices::fetch("EURUSD=X")
+        .inspect_err(|error| eprintln!("warning: no EUR/USD rate: {error}"))
+        .ok()
+        .map(|quote| quote.price);
+    if let Some(rate) = eur_usd {
+        println!("conversion rate EUR/USD: {rate}");
+    }
 
     println!(
         "{:<32} {:<12} {:>12} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
@@ -52,51 +75,57 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     let mut total_cost = Decimal::ZERO;
     let mut total_realized = Decimal::ZERO;
-    let mut total_value = Decimal::ZERO;
+    let mut total_value = Some(Decimal::ZERO);
     let mut total_dividends = Decimal::ZERO;
 
     for (isin, holding) in &holdings(&transactions) {
         let price = if holding.shares().is_zero() {
-            Decimal::ZERO
+            Some(Decimal::ZERO)
         } else {
-            let ticker = tickers
-                .get(isin)
-                .ok_or_else(|| format!("no ticker for {isin} in the tickers file"))?;
-            prices::price_in_eur(ticker, eur_usd.price)?
+            price(isin, &tickers, eur_usd)
+                .inspect_err(|error| eprintln!("warning: {}: {error}", holding.name))
+                .ok()
         };
+        let value = price.map(|price| holding.value(price));
+        let unrealized = price.map(|price| holding.unrealized(price));
         println!(
-            "{:<32} {isin:<12} {:>12} {:>10.2} {:>10.2} {:>10.2} {:>10.2} {:>10.2} {:>10.2}",
+            "{:<32} {isin:<12} {:>12} {:>10.2} {:>10.2} {:>10.2} {:>10} {:>10} {:>10.2}",
             holding.name,
             holding.shares().normalize(),
             holding.cost_basis().round_dp(2),
             holding.avg_price().unwrap_or_default().round_dp(2),
             holding.realized.round_dp(2),
-            holding.value(price).round_dp(2),
-            holding.unrealized(price).round_dp(2),
+            cell(value),
+            cell(unrealized),
             holding.dividends.round_dp(2),
         );
         total_cost += holding.cost_basis();
         total_realized += holding.realized;
-        total_value += holding.value(price);
+        total_value = match (total_value, value) {
+            (Some(total), Some(value)) => Some(total + value),
+            _ => None,
+        };
         total_dividends += holding.dividends;
     }
 
+    let total_unrealized = total_value.map(|value| value - total_cost);
     println!(
-        "{:<32} {:<12} {:>12} {:>10.2} {:>10} {:>10.2} {:>10.2} {:>10.2} {:>10.2}",
+        "{:<32} {:<12} {:>12} {:>10.2} {:>10} {:>10.2} {:>10} {:>10} {:>10.2}",
         "TOTAL",
         "",
         "",
         total_cost.round_dp(2),
         "",
         total_realized.round_dp(2),
-        total_value.round_dp(2),
-        (total_value - total_cost).round_dp(2),
+        cell(total_value),
+        cell(total_unrealized),
         total_dividends.round_dp(2),
     );
 
-    let unrealized = total_value - total_cost;
-    let total_return = total_realized + unrealized + sums.dividends + sums.interest + sums.taxes;
-    println!("total return after tax: {:.2}", total_return.round_dp(2));
+    let total_return = total_unrealized.map(|unrealized| {
+        total_realized + unrealized + sums.dividends + sums.interest + sums.taxes
+    });
+    println!("total return after tax: {}", cell(total_return));
 
     Ok(())
 }
