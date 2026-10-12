@@ -20,8 +20,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cash balance: {}", cash_balance(&rows));
     let sums = totals(&rows)?;
     println!(
-        "fees: {:.2}  taxes: {:.2}  interest: {:.2}",
-        sums.fees, sums.taxes, sums.interest
+        "fees: {:.2}  taxes: {:.2}  interest: {:.2} dividends(gross): {:.2}",
+        sums.fees, sums.taxes, sums.interest, sums.dividends
     );
 
     let eur_usd = prices::fetch("EURUSD=X")?;
@@ -78,6 +78,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         (total_value - total_cost).round_dp(2),
         total_dividends.round_dp(2),
     );
+
+    let unrealized = total_value - total_cost;
+    let total_return = total_realized + unrealized + sums.dividends + sums.interest + sums.taxes;
+    println!("total return after tax: {:.2}", total_return.round_dp(2));
 
     Ok(())
 }

@@ -186,6 +186,7 @@ pub struct Totals {
     pub fees: Decimal,
     pub taxes: Decimal,
     pub interest: Decimal,
+    pub dividends: Decimal,
 }
 
 /// Adds up the fees, taxes and interest of every row.
@@ -198,8 +199,11 @@ pub fn totals(rows: &[Row]) -> Result<Totals, UnknownTransactionType> {
     for row in rows {
         totals.fees += row.fee.unwrap_or_default();
         totals.taxes += row.tax.unwrap_or_default();
-        if row.kind.parse::<TransactionType>()? == TransactionType::InterestPayment {
-            totals.interest += row.amount.unwrap_or_default();
+        let amount = row.amount.unwrap_or_default();
+        match row.kind.parse::<TransactionType>()? {
+            TransactionType::InterestPayment => totals.interest += amount,
+            TransactionType::Dividend => totals.dividends += amount,
+            _ => {}
         }
     }
     Ok(totals)
