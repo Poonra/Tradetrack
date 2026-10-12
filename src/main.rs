@@ -2,7 +2,7 @@ use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::error::Error;
 use std::process::ExitCode;
-use tradetrack::{Holding, Row, Transaction, cash_balance, holdings, totals};
+use tradetrack::{Holding, Row, Totals, Transaction, cash_balance, holdings, totals};
 
 mod prices;
 mod tui;
@@ -35,6 +35,40 @@ impl Position {
     }
 }
 
+/// The bottom line of a table: every column added up over its positions.
+///
+/// `value` and `unrealized` are `None` if any price is missing.
+struct Summary {
+    cost: Decimal,
+    realized: Decimal,
+    value: Option<Decimal>,
+    unrealized: Option<Decimal>,
+    dividends: Decimal,
+}
+
+fn summary(positions: &[&Position]) -> Summary {
+    let holdings = || positions.iter().map(|position| &position.holding);
+    let cost: Decimal = holdings().map(Holding::cost_basis).sum();
+    let realized: Decimal = holdings().map(|holding| holding.realized).sum();
+    let dividends: Decimal = holdings().map(|holding| holding.dividends).sum();
+    let value: Option<Decimal> = positions.iter().map(|position| position.value()).sum();
+    let unrealized = value.map(|value| value - cost);
+
+    Summary {
+        cost,
+        realized,
+        value,
+        unrealized,
+        dividends,
+    }
+}
+
+/// What the whole account has earned after tax: gains, dividends and interest.
+fn total_return(all: &Summary, sums: &Totals) -> Option<Decimal> {
+    all.unrealized
+        .map(|unrealized| all.realized + unrealized + sums.dividends + sums.interest + sums.taxes)
+}
+
 /// Looks up what one share of a position is worth in euros right now.
 fn price(
     isin: &str,
@@ -64,7 +98,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut reader = csv::Reader::from_path(path)?;
     let rows: Vec<Row> = reader.deserialize().collect::<Result<_, _>>()?;
     let transactions: Vec<Transaction> = rows
-        .into_iter()
+        .iter()
         .map(Transaction::try_from)
         .collect::<Result<_, _>>()?;
 
@@ -104,8 +138,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         })
         .collect();
 
+    let all: Vec<&Position> = positions.iter().collect();
+    let summary = summary(&all);
+    let total_return = total_return(&summary, &sums);
+
     if std::env::args().any(|arg| arg == "--tui") {
-        tui::run(&positions)?;
+        tui::run(&positions, &rows, total_return)?;
         return Ok(());
     }
 
@@ -113,11 +151,6 @@ fn run() -> Result<(), Box<dyn Error>> {
         "{:<32} {:<12} {:>12} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
         "name", "code", "shares", "cost", "avg", "realized", "value", "unrealized", "dividends"
     );
-
-    let mut total_cost = Decimal::ZERO;
-    let mut total_realized = Decimal::ZERO;
-    let mut total_value = Some(Decimal::ZERO);
-    let mut total_dividends = Decimal::ZERO;
 
     for position in &positions {
         let isin = &position.isin;
@@ -135,32 +168,21 @@ fn run() -> Result<(), Box<dyn Error>> {
             cell(unrealized),
             holding.dividends.round_dp(2),
         );
-        total_cost += holding.cost_basis();
-        total_realized += holding.realized;
-        total_value = match (total_value, value) {
-            (Some(total), Some(value)) => Some(total + value),
-            _ => None,
-        };
-        total_dividends += holding.dividends;
     }
 
-    let total_unrealized = total_value.map(|value| value - total_cost);
     println!(
         "{:<32} {:<12} {:>12} {:>10.2} {:>10} {:>10.2} {:>10} {:>10} {:>10.2}",
         "TOTAL",
         "",
         "",
-        total_cost.round_dp(2),
+        summary.cost.round_dp(2),
         "",
-        total_realized.round_dp(2),
-        cell(total_value),
-        cell(total_unrealized),
-        total_dividends.round_dp(2),
+        summary.realized.round_dp(2),
+        cell(summary.value),
+        cell(summary.unrealized),
+        summary.dividends.round_dp(2),
     );
 
-    let total_return = total_unrealized.map(|unrealized| {
-        total_realized + unrealized + sums.dividends + sums.interest + sums.taxes
-    });
     println!("total return after tax: {}", cell(total_return));
 
     Ok(())

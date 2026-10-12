@@ -14,6 +14,8 @@ pub struct Holding {
     pub lots: VecDeque<Lot>,
     pub realized: Decimal,
     pub dividends: Decimal,
+    /// Shares sold so far, counted as they were at the time of each sale.
+    pub sold: Decimal,
 }
 
 impl Holding {
@@ -78,6 +80,8 @@ impl Holding {
 /// One line of the export, exactly as the CSV has it.
 #[derive(Debug, Deserialize)]
 pub struct Row {
+    pub datetime: String,
+    pub date: String,
     #[serde(rename = "type")]
     pub kind: String,
     pub name: String,
@@ -89,30 +93,30 @@ pub struct Row {
 }
 
 #[derive(Debug)]
-pub enum Transaction {
+pub enum Transaction<'a> {
     Buy {
-        isin: String,
-        name: String,
+        isin: &'a str,
+        name: &'a str,
         shares: Decimal,
         amount: Decimal,
         fee: Decimal,
     },
     Sell {
-        isin: String,
-        name: String,
+        isin: &'a str,
+        name: &'a str,
         shares: Decimal,
         amount: Decimal,
         fee: Decimal,
         tax: Decimal,
     },
     Split {
-        isin: String,
-        name: String,
+        isin: &'a str,
+        name: &'a str,
         shares: Decimal,
     },
     Dividend {
-        isin: String,
-        name: String,
+        isin: &'a str,
+        name: &'a str,
         amount: Decimal,
         tax: Decimal,
     },
@@ -143,38 +147,38 @@ fn required<T>(value: Option<T>, kind: &str, field: &'static str) -> Result<T, P
     })
 }
 
-impl TryFrom<Row> for Transaction {
+impl<'a> TryFrom<&'a Row> for Transaction<'a> {
     type Error = ParseError;
 
-    fn try_from(row: Row) -> Result<Self, Self::Error> {
+    fn try_from(row: &'a Row) -> Result<Self, Self::Error> {
         let kind = row.kind.as_str();
         let fee = row.fee.unwrap_or_default();
         let tax = row.tax.unwrap_or_default();
 
         match kind {
             "BUY" => Ok(Self::Buy {
-                isin: required(row.symbol, kind, "symbol")?,
-                name: row.name,
+                isin: required(row.symbol.as_deref(), kind, "symbol")?,
+                name: &row.name,
                 shares: required(row.shares, kind, "shares")?,
                 amount: required(row.amount, kind, "amount")?,
                 fee,
             }),
             "SELL" => Ok(Self::Sell {
-                isin: required(row.symbol, kind, "symbol")?,
-                name: row.name,
+                isin: required(row.symbol.as_deref(), kind, "symbol")?,
+                name: &row.name,
                 shares: -required(row.shares, kind, "shares")?,
                 amount: required(row.amount, kind, "amount")?,
                 fee,
                 tax,
             }),
             "SPLIT" => Ok(Self::Split {
-                isin: required(row.symbol, kind, "symbol")?,
-                name: row.name,
+                isin: required(row.symbol.as_deref(), kind, "symbol")?,
+                name: &row.name,
                 shares: required(row.shares, kind, "shares")?,
             }),
             "DIVIDEND" => Ok(Self::Dividend {
-                isin: required(row.symbol, kind, "symbol")?,
-                name: row.name,
+                isin: required(row.symbol.as_deref(), kind, "symbol")?,
+                name: &row.name,
                 amount: required(row.amount, kind, "amount")?,
                 tax,
             }),
@@ -196,7 +200,7 @@ impl TryFrom<Row> for Transaction {
     }
 }
 
-impl Transaction {
+impl Transaction<'_> {
     /// Money this transaction moved into (positive) or out of (negative) the account.
     fn cash(&self) -> Decimal {
         match self {
@@ -228,7 +232,7 @@ fn position<'a>(
 
 /// Builds every position from the transactions, keyed by ISIN.
 #[must_use]
-pub fn holdings(transactions: &[Transaction]) -> BTreeMap<String, Holding> {
+pub fn holdings(transactions: &[Transaction<'_>]) -> BTreeMap<String, Holding> {
     let mut positions = BTreeMap::new();
 
     for transaction in transactions {
@@ -253,6 +257,7 @@ pub fn holdings(transactions: &[Transaction]) -> BTreeMap<String, Holding> {
             } => {
                 let holding = position(&mut positions, isin, name);
                 let cost = holding.sell(*shares);
+                holding.sold += shares;
                 holding.realized += amount + fee - cost;
             }
             Transaction::Split { isin, name, shares } => {
@@ -282,7 +287,7 @@ pub struct Totals {
 
 /// Adds up the fees, taxes, interest and gross dividends of every transaction.
 #[must_use]
-pub fn totals(transactions: &[Transaction]) -> Totals {
+pub fn totals(transactions: &[Transaction<'_>]) -> Totals {
     let mut totals = Totals::default();
     for transaction in transactions {
         match transaction {
@@ -308,6 +313,6 @@ pub fn totals(transactions: &[Transaction]) -> Totals {
 
 /// Adds up the cash effect of every transaction: the money left in the account.
 #[must_use]
-pub fn cash_balance(transactions: &[Transaction]) -> Decimal {
+pub fn cash_balance(transactions: &[Transaction<'_>]) -> Decimal {
     transactions.iter().map(Transaction::cash).sum()
 }
