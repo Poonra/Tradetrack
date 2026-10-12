@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 csv = "1.4.0"
+ratatui = "0.30.2"
 rust_decimal = { version = "1.43.0", features = ["serde-str"] }
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"

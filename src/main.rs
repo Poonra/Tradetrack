@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use tradetrack::{Holding, Row, Transaction, cash_balance, holdings, totals};
 
 mod prices;
+mod tui;
 const USAGE: &str = "usage: tradetrack <export.csv> <tickers.csv>";
 
 fn main() -> ExitCode {
@@ -102,6 +103,11 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
         })
         .collect();
+
+    if std::env::args().any(|arg| arg == "--tui") {
+        tui::run(&positions)?;
+        return Ok(());
+    }
 
     println!(
         "{:<32} {:<12} {:>12} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
