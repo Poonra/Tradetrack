@@ -28,6 +28,12 @@ impl Holding {
         self.lots.iter().map(|lot| lot.cost).sum()
     }
 
+    /// What one held share cost on average, or `None` if no shares are held.
+    #[must_use]
+    pub fn avg_price(&self) -> Option<Decimal> {
+        self.cost_basis().checked_div(self.shares())
+    }
+
     /// Removes sold shares from the oldest lots first and returns what they cost.
     fn sell(&mut self, mut shares: Decimal) -> Decimal {
         let mut cost = Decimal::ZERO;

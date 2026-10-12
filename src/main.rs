@@ -31,8 +31,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     );
 
     println!(
-        "{:<32} {:<12} {:>12} {:>10} {:>10} {:>10} {:>10} {:>10}",
-        "name", "code", "shares", "cost", "realized", "value", "unrealized", "dividends"
+        "{:<32} {:<12} {:>12} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
+        "name", "code", "shares", "cost", "avg", "realized", "value", "unrealized", "dividends"
     );
 
     let mut total_cost = Decimal::ZERO;
@@ -50,14 +50,15 @@ fn main() -> Result<(), Box<dyn Error>> {
             prices::price_in_eur(ticker, eur_usd.price)?
         };
         println!(
-            "{:<32} {isin:<12} {:>12} {:>10.2} {:>10.2} {:>10.2} {:>10.2} {:>10.2}",
+            "{:<32} {isin:<12} {:>12} {:>10.2} {:>10.2} {:>10.2} {:>10.2} {:>10.2} {:>10.2}",
             holding.name,
             holding.shares().normalize(),
             holding.cost_basis().round_dp(2),
+            holding.avg_price().unwrap_or_default().round_dp(2),
             holding.realized.round_dp(2),
             holding.value(price).round_dp(2),
             holding.unrealized(price).round_dp(2),
-            holding.dividends.round_dp(2)
+            holding.dividends.round_dp(2),
         );
         total_cost += holding.cost_basis();
         total_realized += holding.realized;
@@ -66,11 +67,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     println!(
-        "{:<32} {:<12} {:>12} {:>10.2} {:>10.2} {:>10.2} {:>10.2} {:>10.2}",
+        "{:<32} {:<12} {:>12} {:>10.2} {:>10} {:>10.2} {:>10.2} {:>10.2} {:>10.2}",
         "TOTAL",
         "",
         "",
         total_cost.round_dp(2),
+        "",
         total_realized.round_dp(2),
         total_value.round_dp(2),
         (total_value - total_cost).round_dp(2),
