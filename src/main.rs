@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::error::Error;
-use tradetrack::{Row, cash_balance, holdings, totals};
+use tradetrack::{Row, Transaction, cash_balance, holdings, totals};
 
 mod prices;
 const USAGE: &str = "usage: tradetrack <export.csv> <tickers.csv>";
@@ -13,12 +13,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut reader = csv::Reader::from_path(path)?;
     let rows: Vec<Row> = reader.deserialize().collect::<Result<_, _>>()?;
+    let transactions: Vec<Transaction> = rows
+        .into_iter()
+        .map(Transaction::try_from)
+        .collect::<Result<_, _>>()?;
 
     let mut ticker_reader = csv::Reader::from_path(ticker_path)?;
     let tickers: HashMap<String, String> = ticker_reader.deserialize().collect::<Result<_, _>>()?;
 
-    println!("cash balance: {}", cash_balance(&rows));
-    let sums = totals(&rows)?;
+    println!("cash balance: {}", cash_balance(&transactions));
+    let sums = totals(&transactions);
     println!(
         "fees: {:.2}  taxes: {:.2}  interest: {:.2} dividends(gross): {:.2}",
         sums.fees, sums.taxes, sums.interest, sums.dividends
@@ -40,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut total_value = Decimal::ZERO;
     let mut total_dividends = Decimal::ZERO;
 
-    for (isin, holding) in &holdings(&rows)? {
+    for (isin, holding) in &holdings(&transactions) {
         let price = if holding.shares().is_zero() {
             Decimal::ZERO
         } else {
