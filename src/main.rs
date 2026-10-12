@@ -2,7 +2,7 @@ use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::error::Error;
 use std::process::ExitCode;
-use tradetrack::{Row, Transaction, cash_balance, holdings, totals};
+use tradetrack::{Holding, Row, Transaction, cash_balance, holdings, totals};
 
 mod prices;
 const USAGE: &str = "usage: tradetrack <export.csv> <tickers.csv>";
@@ -14,6 +14,23 @@ fn main() -> ExitCode {
             eprintln!("error: {error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// One position together with its current price, if that could be looked up.
+struct Position {
+    isin: String,
+    holding: Holding,
+    price: Option<Decimal>,
+}
+
+impl Position {
+    fn value(&self) -> Option<Decimal> {
+        self.price.map(|price| self.holding.value(price))
+    }
+
+    fn unrealized(&self) -> Option<Decimal> {
+        self.price.map(|price| self.holding.unrealized(price))
     }
 }
 
@@ -68,6 +85,24 @@ fn run() -> Result<(), Box<dyn Error>> {
         println!("conversion rate EUR/USD: {rate}");
     }
 
+    let positions: Vec<Position> = holdings(&transactions)
+        .into_iter()
+        .map(|(isin, holding)| {
+            let price = if holding.shares().is_zero() {
+                Some(Decimal::ZERO)
+            } else {
+                price(&isin, &tickers, eur_usd)
+                    .inspect_err(|error| eprintln!("warning: {}: {error}", holding.name))
+                    .ok()
+            };
+            Position {
+                isin,
+                holding,
+                price,
+            }
+        })
+        .collect();
+
     println!(
         "{:<32} {:<12} {:>12} {:>10} {:>10} {:>10} {:>10} {:>10} {:>10}",
         "name", "code", "shares", "cost", "avg", "realized", "value", "unrealized", "dividends"
@@ -78,16 +113,11 @@ fn run() -> Result<(), Box<dyn Error>> {
     let mut total_value = Some(Decimal::ZERO);
     let mut total_dividends = Decimal::ZERO;
 
-    for (isin, holding) in &holdings(&transactions) {
-        let price = if holding.shares().is_zero() {
-            Some(Decimal::ZERO)
-        } else {
-            price(isin, &tickers, eur_usd)
-                .inspect_err(|error| eprintln!("warning: {}: {error}", holding.name))
-                .ok()
-        };
-        let value = price.map(|price| holding.value(price));
-        let unrealized = price.map(|price| holding.unrealized(price));
+    for position in &positions {
+        let isin = &position.isin;
+        let holding = &position.holding;
+        let value = position.value();
+        let unrealized = position.unrealized();
         println!(
             "{:<32} {isin:<12} {:>12} {:>10.2} {:>10.2} {:>10.2} {:>10} {:>10} {:>10.2}",
             holding.name,
