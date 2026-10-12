@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::error::Error;
-use tradetrack::{Row, cash_balance, holdings};
+use tradetrack::{Row, cash_balance, holdings, totals};
 
 mod prices;
 const USAGE: &str = "usage: tradetrack <export.csv> <tickers.csv>";
@@ -18,6 +18,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let tickers: HashMap<String, String> = ticker_reader.deserialize().collect::<Result<_, _>>()?;
 
     println!("cash balance: {}", cash_balance(&rows));
+    let sums = totals(&rows)?;
+    println!(
+        "fees: {:.2}  taxes: {:.2}  interest: {:.2}",
+        sums.fees, sums.taxes, sums.interest
+    );
+
     let eur_usd = prices::fetch("EURUSD=X")?;
     println!(
         "conversion rate EUR/USD: {} {}",

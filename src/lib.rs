@@ -174,6 +174,31 @@ pub fn holdings(rows: &[Row]) -> Result<BTreeMap<String, Holding>, UnknownTransa
     Ok(positions)
 }
 
+/// Account-wide sums over every row of the export.
+#[derive(Debug, Default)]
+pub struct Totals {
+    pub fees: Decimal,
+    pub taxes: Decimal,
+    pub interest: Decimal,
+}
+
+/// Adds up the fees, taxes and interest of every row.
+///
+/// # Errors
+///
+/// Returns an error if a row has a transaction type this program does not know.
+pub fn totals(rows: &[Row]) -> Result<Totals, UnknownTransactionType> {
+    let mut totals = Totals::default();
+    for row in rows {
+        totals.fees += row.fee.unwrap_or_default();
+        totals.taxes += row.tax.unwrap_or_default();
+        if row.kind.parse::<TransactionType>()? == TransactionType::InterestPayment {
+            totals.interest += row.amount.unwrap_or_default();
+        }
+    }
+    Ok(totals)
+}
+
 /// Adds up amount, fee and tax of every row: the money left in the account.
 #[must_use]
 pub fn cash_balance(rows: &[Row]) -> Decimal {
