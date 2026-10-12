@@ -8,14 +8,33 @@ pub struct Lot {
     pub cost: Decimal,
 }
 
+/// One sale of a position: when, how many shares, and the gain or loss it made.
+///
+/// `shares` is the count at the time of the sale; later splits do not change it.
+#[derive(Debug)]
+pub struct Sale {
+    pub date: String,
+    pub shares: Decimal,
+    pub realized: Decimal,
+}
+
+/// One dividend payment of a position, after tax.
+#[derive(Debug)]
+pub struct Payout {
+    pub date: String,
+    pub net: Decimal,
+}
+
 #[derive(Debug, Default)]
 pub struct Holding {
     pub name: String,
     pub lots: VecDeque<Lot>,
+    /// The sum of `sales`.
     pub realized: Decimal,
+    /// The sum of `payouts`.
     pub dividends: Decimal,
-    /// Shares sold so far, counted as they were at the time of each sale.
-    pub sold: Decimal,
+    pub sales: Vec<Sale>,
+    pub payouts: Vec<Payout>,
 }
 
 impl Holding {
@@ -102,6 +121,7 @@ pub enum Transaction<'a> {
         fee: Decimal,
     },
     Sell {
+        date: &'a str,
         isin: &'a str,
         name: &'a str,
         shares: Decimal,
@@ -115,6 +135,7 @@ pub enum Transaction<'a> {
         shares: Decimal,
     },
     Dividend {
+        date: &'a str,
         isin: &'a str,
         name: &'a str,
         amount: Decimal,
@@ -164,6 +185,7 @@ impl<'a> TryFrom<&'a Row> for Transaction<'a> {
                 fee,
             }),
             "SELL" => Ok(Self::Sell {
+                date: &row.date,
                 isin: required(row.symbol.as_deref(), kind, "symbol")?,
                 name: &row.name,
                 shares: -required(row.shares, kind, "shares")?,
@@ -177,6 +199,7 @@ impl<'a> TryFrom<&'a Row> for Transaction<'a> {
                 shares: required(row.shares, kind, "shares")?,
             }),
             "DIVIDEND" => Ok(Self::Dividend {
+                date: &row.date,
                 isin: required(row.symbol.as_deref(), kind, "symbol")?,
                 name: &row.name,
                 amount: required(row.amount, kind, "amount")?,
@@ -248,6 +271,7 @@ pub fn holdings(transactions: &[Transaction<'_>]) -> BTreeMap<String, Holding> {
                 cost: -(amount + fee),
             }),
             Transaction::Sell {
+                date,
                 isin,
                 name,
                 shares,
@@ -256,19 +280,32 @@ pub fn holdings(transactions: &[Transaction<'_>]) -> BTreeMap<String, Holding> {
                 ..
             } => {
                 let holding = position(&mut positions, isin, name);
-                let cost = holding.sell(*shares);
-                holding.sold += shares;
-                holding.realized += amount + fee - cost;
+                let realized = amount + fee - holding.sell(*shares);
+                holding.realized += realized;
+                holding.sales.push(Sale {
+                    date: (*date).to_string(),
+                    shares: *shares,
+                    realized,
+                });
             }
             Transaction::Split { isin, name, shares } => {
                 position(&mut positions, isin, name).split(*shares);
             }
             Transaction::Dividend {
+                date,
                 isin,
                 name,
                 amount,
                 tax,
-            } => position(&mut positions, isin, name).dividends += amount + tax,
+            } => {
+                let holding = position(&mut positions, isin, name);
+                let net = amount + tax;
+                holding.dividends += net;
+                holding.payouts.push(Payout {
+                    date: (*date).to_string(),
+                    net,
+                });
+            }
             Transaction::Interest { .. } | Transaction::Other { .. } => {}
         }
     }
