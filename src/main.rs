@@ -1,12 +1,23 @@
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use std::error::Error;
+use std::process::ExitCode;
 use tradetrack::{Row, Transaction, cash_balance, holdings, totals};
 
 mod prices;
 const USAGE: &str = "usage: tradetrack <export.csv> <tickers.csv>";
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
     let path = std::env::args().nth(1).ok_or(USAGE)?;
 
     let ticker_path = std::env::args().nth(2).ok_or(USAGE)?;
@@ -21,7 +32,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut ticker_reader = csv::Reader::from_path(ticker_path)?;
     let tickers: HashMap<String, String> = ticker_reader.deserialize().collect::<Result<_, _>>()?;
 
-    println!("cash balance: {}", cash_balance(&transactions));
+    println!("cash balance: {:.2}", cash_balance(&transactions));
     let sums = totals(&transactions);
     println!(
         "fees: {:.2}  taxes: {:.2}  interest: {:.2} dividends(gross): {:.2}",
