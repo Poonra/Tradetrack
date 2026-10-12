@@ -2,11 +2,13 @@ use crate::{Position, cell};
 use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyCode};
 use ratatui::layout::Constraint;
-use ratatui::prelude::Stylize;
-use ratatui::style::Style;
+use ratatui::style::{Color, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Cell, Row, Table, TableState};
+use rust_decimal::Decimal;
 use std::io;
+
+const ORANGE: Color = Color::Indexed(208);
 
 ///open full-screen view and close with q
 pub fn run(positions: &[Position]) -> io::Result<()> {
@@ -39,6 +41,16 @@ fn right<'a>(text: impl Into<Line<'a>>) -> Cell<'a> {
     Cell::from(text.into().right_aligned())
 }
 
+/// A right-aligned amount in one colour for a gain and another for a loss.
+fn signed(amount: Option<Decimal>, gain: Color, loss: Color) -> Cell<'static> {
+    let color = match amount {
+        Some(amount) if amount > Decimal::ZERO => gain,
+        Some(amount) if amount < Decimal::ZERO => loss,
+        _ => Color::Reset,
+    };
+    right(cell(amount)).style(Style::new().fg(color))
+}
+
 /// Builds the positions table: one line per position under a header.
 fn table(positions: &[Position]) -> Table<'_> {
     let header = Row::new([
@@ -61,9 +73,9 @@ fn table(positions: &[Position]) -> Table<'_> {
             right(holding.shares().normalize().to_string()),
             right(cell(Some(holding.cost_basis()))),
             right(cell(holding.avg_price())),
-            right(cell(Some(holding.realized))),
+            signed(Some(holding.realized), Color::Green, Color::Red),
             right(cell(position.value())),
-            right(cell(position.unrealized())),
+            signed(position.unrealized(), Color::Yellow, ORANGE),
             right(cell(Some(holding.dividends))),
         ])
     });
@@ -82,7 +94,6 @@ fn table(positions: &[Position]) -> Table<'_> {
 
     Table::new(rows, widths)
         .header(header)
-        .block(Block::bordered().title("tradetrack: press q to quit"))
         .block(Block::bordered().title("tradetrack: up/down to move, q to quit"))
         .row_highlight_style(Style::new().reversed())
 }
