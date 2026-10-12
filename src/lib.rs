@@ -14,6 +14,7 @@ pub struct Holding {
     pub name: String,
     pub lots: VecDeque<Lot>,
     pub realized: Decimal,
+    pub dividends: Decimal,
 }
 
 impl Holding {
@@ -133,7 +134,10 @@ pub fn holdings(rows: &[Row]) -> Result<BTreeMap<String, Holding>, UnknownTransa
         let kind: TransactionType = row.kind.parse()?;
         if !matches!(
             kind,
-            TransactionType::Buy | TransactionType::Sell | TransactionType::Split
+            TransactionType::Buy
+                | TransactionType::Sell
+                | TransactionType::Split
+                | TransactionType::Dividend
         ) {
             continue;
         }
@@ -147,6 +151,7 @@ pub fn holdings(rows: &[Row]) -> Result<BTreeMap<String, Holding>, UnknownTransa
                 name: row.name.clone(),
                 lots: VecDeque::new(),
                 realized: Decimal::ZERO,
+                dividends: Decimal::ZERO,
             });
         match kind {
             TransactionType::Buy => holding.lots.push_back(Lot {
@@ -158,6 +163,10 @@ pub fn holdings(rows: &[Row]) -> Result<BTreeMap<String, Holding>, UnknownTransa
                 holding.realized += money - cost;
             }
             TransactionType::Split => holding.split(shares),
+
+            TransactionType::Dividend => {
+                holding.dividends += row.amount.unwrap_or_default() + row.tax.unwrap_or_default();
+            }
             _ => {}
         }
     }
